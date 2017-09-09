@@ -8,10 +8,11 @@
 //          http://www.dx.com/
 #include <SoftwareSerial.h>
 #include "Statistic.h"
+#include "ArrayShuffle.cpp"
 
-#define TOTAL_SONGS 25
+#define TOTAL_SONGS 26
 #define ACCELEROMETER_TRASHHOLD 0.03
-#define SONG_PLAY_TIME 15000
+#define SONG_PLAY_TIME 18000
 #define STD_DEV_SIZE 10
 
 int scale = 3; // 3 (±3g) for ADXL337, 200 (±200g) for ADXL377
@@ -37,9 +38,6 @@ static int8_t Send_buf[8] = {0} ;
 #define SINGLE_CYCLE_OFF 0X01
 #define CMD_PLAY_W_VOL 0X22
 float scaledX, scaledY, scaledZ; // Scaled values for each axis
-float calibratedScaledX=0;
-float calibratedScaledY=0;
-float calibratedScaledZ=0;
 int rawX,rawY,rawZ;
 float lastSongTime;
 bool isPlaying = false;
@@ -57,26 +55,6 @@ void setup()
   delay(200);
   Serial.begin(115200);
   Serial.println("Started");
-  delay(200);
-  calibrateAccelerometer();
-  
-  delay(50);
-}
-
-void calibrateAccelerometer() {
-  int numberOfAccelerometerCalibrationLoops = 20;
-  for(int i=0;i<numberOfAccelerometerCalibrationLoops;i++) { 
-    readAccelerometer();
-    calibratedScaledX+= scaledX;
-    calibratedScaledY+= scaledY;
-    calibratedScaledZ+= scaledZ;
-  }
-  calibratedScaledX/=numberOfAccelerometerCalibrationLoops;
-  calibratedScaledY/=numberOfAccelerometerCalibrationLoops;
-  calibratedScaledZ/=numberOfAccelerometerCalibrationLoops;
-  Serial.print("Calibrated X: "); Serial.println(calibratedScaledX);
-  Serial.print("Calibrated Y: "); Serial.println(calibratedScaledY);
-  Serial.print("Calibrated Z: "); Serial.println(calibratedScaledZ);
 }
 
 void loop() 
@@ -85,10 +63,6 @@ void loop()
   myStatsX.add(scaledX);
   myStatsY.add(scaledY);
   myStatsZ.add(scaledZ);
-  //scaledX = scaledX - calibratedScaledX;
-  //scaledY = scaledY - calibratedScaledY;
-  //scaledZ = scaledZ - calibratedScaledZ;
-  // Print out scaled X,Y,Z accelerometer reading
   
   Serial.print("X: "); Serial.print(scaledX);
   Serial.print("Y: "); Serial.print(scaledY);
@@ -103,7 +77,7 @@ void loop()
   }
 
 
-  // Check for std dev every STD_DEV_SIZE calls
+  // Error cleaning - Check for std dev every STD_DEV_SIZE calls
   if (myStatsX.count() >= STD_DEV_SIZE) {
     float stdX = myStatsX.pop_stdev();
     float stdY = myStatsY.pop_stdev();
@@ -123,10 +97,9 @@ void loop()
         if(millis() - lastSongTime >= SONG_PLAY_TIME) {
           lastSongTime = millis();
           isPlaying = true;
-          //int8_t randSong = random(TOTAL_SONGS);
-          int8_t randSong = 1;
-          Serial.print("Play a song"); Serial.println(randSong);
-          sendCommand(CMD_PLAY_W_VOL, 0X0F01+randSong);
+          int8_t randSong = random(TOTAL_SONGS);
+          Serial.print("Play a song "); Serial.println(randSong);
+          sendCommand(CMD_PLAY_W_VOL, 0X1E01+(randSong*2)); //TODO Not sure why *2
         } else {
           Serial.println("Already playing");
         }
@@ -136,7 +109,7 @@ void loop()
   delay(50);
 //  int8_t randNumber = random(TOTAL_SONGS);
 //  for(int8_t i=0; i<100;i++) {
-//    sendCommand(CMD_PLAY_W_VOL, 0X0F01+i);//play the first song with volume 15 class
+//    sendCommand(CMD_PLAY_W_VOL, 0X01E1+i);//play the first song with volume 15 class
 //    //delay(10000);
 //  }
 }
@@ -183,3 +156,7 @@ float mapf(float x, float in_min, float in_max, float out_min, float out_max)
 {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
+
+
+
+
