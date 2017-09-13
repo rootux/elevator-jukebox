@@ -1,23 +1,16 @@
 /***********************************************************/
-//Demo for the Serial MP3 Player by Catalex
-//Hardware: Serial MP3 Player *1
-//Board:  Arduino UNO R3
-//IDE:	  Arduino-1.0
-//Function:  To play the first song in the micro sd card.
-//Store: http://www.aliexpress.com/store/1199788
-//          http://www.dx.com/
+// Elevator Jukebox
 #include <SoftwareSerial.h>
 #include "Statistic.h"
-#include "ArrayShuffle.cpp"
 
 #define TOTAL_SONGS 26
 #define ACCELEROMETER_TRASHHOLD 0.03
-#define SONG_PLAY_TIME 18000
+#define SONG_PLAY_TIME 20000
 #define STD_DEV_SIZE 10
 
 int scale = 3; // 3 (±3g) for ADXL337, 200 (±200g) for ADXL377
 boolean micro_is_5V = true;
-Statistic myStatsX; 
+Statistic myStatsX;
 Statistic myStatsY;
 Statistic myStatsZ;
 
@@ -41,50 +34,53 @@ float scaledX, scaledY, scaledZ; // Scaled values for each axis
 int rawX,rawY,rawZ;
 float lastSongTime;
 bool isPlaying = false;
+int currentArrayCount = 0;
+int songsArray[TOTAL_SONGS];
+int songsArraySize = sizeof(songsArray) / sizeof(int);
 
 void setup()
 {
+   // Create songs index array
+   for(int i=0;i< TOTAL_SONGS; i++) {
+     songsArray[i]=i;
+   }
+   Serial.begin(115200);
+   Serial.println("Started");
+   randomSeed(analogRead(2));
+  // Fisher-yates shuffle randomly the array
+  shuffle(songsArray, songsArraySize, sizeof(int));
+
   myStatsX.clear();
   myStatsY.clear();
   myStatsZ.clear();
 
-	mySerial.begin(9600);
-  randomSeed(analogRead(0));
+  mySerial.begin(9600);
 	delay(500);//Wait chip initialization is complete
   sendCommand(CMD_SEL_DEV, DEV_TF);//select the TF card  
   delay(200);
-  Serial.begin(115200);
-  Serial.println("Started");
+  lastSongTime = -1 * SONG_PLAY_TIME;
 }
 
 void loop() 
 {
+  // Check if should randomize new songs array
+  if(currentArrayCount >= TOTAL_SONGS) {
+    currentArrayCount = 0;
+    randomSeed(analogRead(2));
+    shuffle(songsArray, songsArraySize, sizeof(int));
+  }
+
   readAccelerometer();
   myStatsX.add(scaledX);
   myStatsY.add(scaledY);
   myStatsZ.add(scaledZ);
-  
-  Serial.print("X: "); Serial.print(scaledX);
-  Serial.print("Y: "); Serial.print(scaledY);
-  Serial.print("Z: "); Serial.print(scaledZ);
-  Serial.println();
-
-  // Should stop song
-  if(isPlaying && millis() - lastSongTime >= SONG_PLAY_TIME) {
-    isPlaying = false;
-    Serial.println("Stop song");
-    sendCommand(CMD_PAUSE, 0);
-  }
-
 
   // Error cleaning - Check for std dev every STD_DEV_SIZE calls
   if (myStatsX.count() >= STD_DEV_SIZE) {
     float stdX = myStatsX.pop_stdev();
     float stdY = myStatsY.pop_stdev();
     float stdZ = myStatsZ.pop_stdev();
-    Serial.print("STD Dev X: "); Serial.println(stdX);
-    Serial.print("STD Dev Y: "); Serial.println(stdY);
-    Serial.print("STD Dev Z: "); Serial.println(stdZ);
+    
     myStatsX.clear();
     myStatsY.clear();
     myStatsZ.clear();
@@ -97,13 +93,21 @@ void loop()
         if(millis() - lastSongTime >= SONG_PLAY_TIME) {
           lastSongTime = millis();
           isPlaying = true;
-          int8_t randSong = random(TOTAL_SONGS);
+          int8_t randSong = songsArray[currentArrayCount++];
+          delay(50);
           Serial.print("Play a song "); Serial.println(randSong);
           sendCommand(CMD_PLAY_W_VOL, 0X1E01+(randSong*2)); //TODO Not sure why *2
         } else {
           Serial.println("Already playing");
         }
       }
+  }
+
+  // Should stop song
+  if(isPlaying && millis() - lastSongTime >= SONG_PLAY_TIME) {
+    isPlaying = false;
+    Serial.println("Stop song");
+    sendCommand(CMD_PAUSE, 0);
   }
 
   delay(50);
@@ -132,6 +136,10 @@ void readAccelerometer() {
     scaledY = mapf(rawY, 0, 1023, -scale, scale);
     scaledZ = mapf(rawZ, 0, 1023, -scale, scale);
   }
+  // Serial.print("X: "); Serial.print(scaledX);
+  // Serial.print("Y: "); Serial.print(scaledY);
+  // Serial.print("Z: "); Serial.print(scaledZ);
+  // Serial.println();
 }
 
 void sendCommand(int8_t command, int16_t dat)
@@ -158,5 +166,37 @@ float mapf(float x, float in_min, float in_max, float out_min, float out_max)
 }
 
 
+// generate a value between 0 <= x < n, thus there are n possible outputs
+int rand_range(int n)
+{
+   int r, ul;
+   ul = RAND_MAX - RAND_MAX % n;
+   while ((r = random(RAND_MAX+1)) >= ul);
+   return r % n;
+}
 
 
+void shuffle_swap(int index_a, int index_b, int *array, int size)
+{
+   char *x, *y, tmp[size];
+
+   if (index_a == index_b) return;
+
+   x = (char*)array + index_a * size;
+   y = (char*)array + index_b * size;
+
+   memcpy(tmp, x, size);
+   memcpy(x, y, size);
+   memcpy(y, tmp, size);
+}
+
+// shuffle an array using fisher-yates method, O(n)
+void shuffle(int *array, int nmemb, int size)
+{
+   int r;
+   
+   while (nmemb > 1) {                                                                      
+       r = rand_range(nmemb--);                                                              
+       shuffle_swap(nmemb, r, array, size);
+   }
+}
