@@ -1,12 +1,18 @@
 /***********************************************************/
 // Elevator Jukebox
+// Triggered by an accelerometer that identifies when the
+// Elevator is moving - then plays a track to an audio Player
+// Also added a silence track to keep the speaker from going to sleep mode
+/***********************************************************/
 #include <SoftwareSerial.h>
 #include "Statistic.h"
 
-#define TOTAL_SONGS 26
-#define ACCELEROMETER_TRASHHOLD 0.03
+#define TOTAL_SONGS 24
+#define ACCELEROMETER_TRASHHOLD 0.025
 #define SONG_PLAY_TIME 20000
 #define STD_DEV_SIZE 10
+// Keeping the speaker from going to sleep mode
+#define TIME_TO_PLAY_SILENCE_TRACK 30000
 
 int scale = 3; // 3 (±3g) for ADXL337, 200 (±200g) for ADXL377
 boolean micro_is_5V = true;
@@ -32,7 +38,7 @@ static int8_t Send_buf[8] = {0} ;
 #define CMD_PLAY_W_VOL 0X22
 float scaledX, scaledY, scaledZ; // Scaled values for each axis
 int rawX,rawY,rawZ;
-float lastSongTime;
+float lastTimePlayed;
 bool isPlaying = false;
 int currentArrayCount = 0;
 int songsArray[TOTAL_SONGS];
@@ -41,7 +47,8 @@ int songsArraySize = sizeof(songsArray) / sizeof(int);
 void setup()
 {
    // Create songs index array
-   for(int i=0;i< TOTAL_SONGS; i++) {
+   // Skipping 1st track as this is the silence track
+   for(int i=1;i< TOTAL_SONGS; i++) {
      songsArray[i]=i;
    }
    Serial.begin(115200);
@@ -58,11 +65,19 @@ void setup()
 	delay(500);//Wait chip initialization is complete
   sendCommand(CMD_SEL_DEV, DEV_TF);//select the TF card  
   delay(200);
-  lastSongTime = -1 * SONG_PLAY_TIME;
+  lastTimePlayed = -1 * SONG_PLAY_TIME;
+}
+
+void test() {
+  for(int i=0;i<TOTAL_SONGS;i++) {
+    Serial.print("Play a song "); Serial.println(i);
+    sendCommand(CMD_PLAY_W_VOL, 0X1E01+(i*2));
+    delay(3000);
+  }
 }
 
 void loop() 
-{
+{ 
   // Check if should randomize new songs array
   if(currentArrayCount >= TOTAL_SONGS) {
     currentArrayCount = 0;
@@ -90,13 +105,13 @@ void loop()
       (stdY > ACCELEROMETER_TRASHHOLD) ||
       (stdZ > ACCELEROMETER_TRASHHOLD)) {
 
-        if(millis() - lastSongTime >= SONG_PLAY_TIME) {
-          lastSongTime = millis();
+        if(millis() - lastTimePlayed >= SONG_PLAY_TIME) {
+          lastTimePlayed = millis();
           isPlaying = true;
           int8_t randSong = songsArray[currentArrayCount++];
           delay(50);
           Serial.print("Play a song "); Serial.println(randSong);
-          sendCommand(CMD_PLAY_W_VOL, 0X1E01+(randSong*2)); //TODO Not sure why *2
+          sendCommand(CMD_PLAY_W_VOL, 0X1E01 + (randSong * 2)); //TODO Not sure why *2
         } else {
           Serial.println("Already playing");
         }
@@ -104,18 +119,23 @@ void loop()
   }
 
   // Should stop song
-  if(isPlaying && millis() - lastSongTime >= SONG_PLAY_TIME) {
+  if(isPlaying && millis() - lastTimePlayed >= SONG_PLAY_TIME) {
     isPlaying = false;
     Serial.println("Stop song");
     sendCommand(CMD_PAUSE, 0);
   }
 
+  bool notPlaying = ((millis() - lastTimePlayed) > SONG_PLAY_TIME);
+  if (notPlaying && (millis() % TIME_TO_PLAY_SILENCE_TRACK) > TIME_TO_PLAY_SILENCE_TRACK - 1000) {
+      Serial.println("Playing silence to stay awake");
+      sendCommand(CMD_PLAY_W_VOL, 0X0315); //Playing some song (21 0x15) with low volumes (03)
+      delay(600);
+      sendCommand(CMD_PAUSE, 0);
+      delay(50);
+      sendCommand(CMD_PAUSE, 0);
+  }
+
   delay(50);
-//  int8_t randNumber = random(TOTAL_SONGS);
-//  for(int8_t i=0; i<100;i++) {
-//    sendCommand(CMD_PLAY_W_VOL, 0X01E1+i);//play the first song with volume 15 class
-//    //delay(10000);
-//  }
 }
 
 void readAccelerometer() {
@@ -136,10 +156,6 @@ void readAccelerometer() {
     scaledY = mapf(rawY, 0, 1023, -scale, scale);
     scaledZ = mapf(rawZ, 0, 1023, -scale, scale);
   }
-  // Serial.print("X: "); Serial.print(scaledX);
-  // Serial.print("Y: "); Serial.print(scaledY);
-  // Serial.print("Z: "); Serial.print(scaledZ);
-  // Serial.println();
 }
 
 void sendCommand(int8_t command, int16_t dat)
