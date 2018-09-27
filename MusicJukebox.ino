@@ -5,10 +5,14 @@
 /***********************************************************/
 #include <SoftwareSerial.h>
 #include "Statistic.h"
+#include <FastLED.h>
 
-#define TOTAL_SONGS_FOLDER_1 27
-#define TOTAL_SONGS_FOLDER_2 28
-#define SONG_PLAY_TIME 200 // Time to wait before enabling another press on the button
+
+
+#define TOTAL_SONGS_FOLDER_1 41
+#define TOTAL_SONGS_FOLDER_2 98
+#define SONG_PLAY_TIME 1000 // Time to wait before enabling another press on the button
+#define LED_COOLDOWN 1000
 // Keeping the speaker from going to sleep mode
 #define TIME_TO_PLAY_SILENCE_TRACK 30000
 
@@ -16,11 +20,19 @@
 #define ARDUINO_TX 6 //connect to RX of the module
 SoftwareSerial mySerial(ARDUINO_RX, ARDUINO_TX);
 
+
+bool ledIsOn = true;
 // Buttons
-const int firstButtonPin = 8;
-const int secondButtonPin = 9;
+const int firstButtonPin = 7;
+const int secondButtonPin = 8;
+const int fourthButtonPin = 9;
+const int thirdButtonPin = 10;
 int firstButtonState = 0;
+int firstButtonStateLast = 0;
 int secondButtonState = 0;
+int secondButtonStateLast = 0;
+int thirdButtonState = 0;
+int fourthButtonState = 0;
 int folderToPlayFrom = 0;
 int shouldPlay = false;
 
@@ -41,6 +53,7 @@ static int8_t Send_buf[8] = {0} ;
 #define FIRST_FOLDER 0x0100  //Folder 01 on the sd card
 #define SECOND_FOLDER 0x0200 //Folder 02 on the sd card
 
+float lastLedOff;
 float lastTimePlayed;
 bool isPlaying = false;
 
@@ -52,6 +65,89 @@ int songsArrayFolder1Size = sizeof(songsArrayFolder1) / sizeof(int);
 
 int songsArrayFolder2[TOTAL_SONGS_FOLDER_2];
 int songsArrayFolder2Size = sizeof(songsArrayFolder2) / sizeof(int);
+ 
+
+// LED
+#define UPDATES_PER_SECOND 40
+#define LED_PIN_1 11
+#define NUM_LEDS_PER_STRIP 30
+#define LED_TYPE    WS2812B
+#define COLOR_ORDER RGB
+CRGB leds[NUM_LEDS_PER_STRIP];
+#define BRIGHTNESS  30 // TODO - how much brightness - Check if perhaps should be set by button
+
+// Gradient palette "Geek_Black_White", originally from
+// http://soliton.vm.bytemark.co.uk/pub/cpt-city/heine/tn/GeeK07.png.index.html
+DEFINE_GRADIENT_PALETTE( Geek_Black_White ) {
+  0, 255,255,255,0, 255,255,255,10, 0,  0,  0,
+  10,   0,  0,  0, 20, 255,255,255, 20, 255,255,255,
+  30,   0,  0,  0, 30,   0,  0,  0, 40, 255,255,255,
+  40, 255,255,255, 50,   0,  0,  0, 50,   0,  0,  0,
+  150, 255,255,255, 150, 255,255,255, 180,   0,  0,  0,
+  180,   0,  0,  0, 220, 255,255,255, 220, 255,255,255,
+  255,   0,  0,  0, 255,   0,  0,  0
+ };
+
+
+DEFINE_GRADIENT_PALETTE( bhw2_turq_gp ) {
+    0,   1, 33, 95,
+   38,   1,107, 37,
+   76,  42,255, 45,
+  127, 255,255, 45,
+  178,  42,255, 45,
+  216,   1,107, 37,
+  255,   1, 33, 95};
+  
+// Gradient palette "bhw1_28_gp", originally from
+// http://soliton.vm.bytemark.co.uk/pub/cpt-city/bhw/bhw1/tn/bhw1_28.png.index.html
+// converted for FastLED with gammas (2.6, 2.2, 2.5)
+// Size: 32 bytes of program space.
+
+DEFINE_GRADIENT_PALETTE( PURPLE_HAZE ) {
+  0,  75,  1,221, 30, 252, 73,255, 48, 169,  0,242,
+  119,   0,149,242, 170,  43,  0, 242, 206, 252, 73,255,
+  232,  78, 12,214, 255,   0,149,242};
+
+// Gradient palette "bhw1_28_gp", originally from
+// http://soliton.vm.bytemark.co.uk/pub/cpt-city/bhw/bhw1/tn/bhw1_28.png.index.html
+// converted for FastLED with gammas (2.6, 2.2, 2.5)
+// Size: 32 bytes of program space.
+
+DEFINE_GRADIENT_PALETTE( bhw1_28_gp ) {
+    0,  75,  1,221,
+   30, 252, 73,255,
+   48, 169,  0,242,
+  119,   0,149,242,
+  170,  43,  0,242,
+  206, 252, 73,255,
+  232,  78, 12,214,
+  255,   0,149,242};
+
+
+int paleteIndex = 0;
+CRGBPalette16 currentPalette = PURPLE_HAZE;
+
+void getNextPalette() {
+  if(paleteIndex > 4) {
+    paleteIndex = 0;
+  }
+  if(paleteIndex == 0) {
+    currentPalette = PURPLE_HAZE;
+  }
+  if(paleteIndex == 1) {
+    currentPalette = Geek_Black_White;
+  }
+  if(paleteIndex == 2) {
+    currentPalette = bhw1_28_gp;
+  }
+
+  if(paleteIndex == 3 ) {
+    currentPalette = bhw2_turq_gp;
+  }
+
+  paleteIndex++;
+  
+}
 
 void setup()
 {
@@ -76,6 +172,10 @@ void setup()
   digitalWrite(firstButtonPin, HIGH);
   pinMode(secondButtonPin, INPUT);
   digitalWrite(secondButtonPin, HIGH);
+  pinMode(thirdButtonPin, INPUT);
+  digitalWrite(thirdButtonPin, HIGH);
+  pinMode(fourthButtonPin, INPUT);
+  digitalWrite(fourthButtonPin, HIGH);
 
   mySerial.begin(9600);
   delay(500);//Wait chip initialization is complete
@@ -84,6 +184,9 @@ void setup()
   lastTimePlayed = -1 * SONG_PLAY_TIME;
   sendCommand(CMD_SEL_DEV, 0x001E); //Set volume to max
   delay(200);
+
+  // Initialize leds
+  FastLED.addLeds<LED_TYPE, LED_PIN_1, COLOR_ORDER>(leds, NUM_LEDS_PER_STRIP).setCorrection( TypicalLEDStrip );
 }
 
 void test() {
@@ -120,9 +223,32 @@ void loop()
   // read the state of the pushbutton value:
   firstButtonState = digitalRead(firstButtonPin);
   secondButtonState = digitalRead(secondButtonPin);
+  thirdButtonState = digitalRead(thirdButtonPin);
+  fourthButtonState = digitalRead(fourthButtonPin);
+
+  if (fourthButtonState == LOW) {
+    if(millis() - lastLedOff >= LED_COOLDOWN) {
+      lastLedOff = millis();
+      getNextPalette();
+    }
+  }
+
+
+  if (thirdButtonState == LOW) {
+    if(currentArrayCountFolder1 > 0) {
+      currentArrayCountFolder1-=1;
+      // Also play the last thing
+      folderToPlayFrom = FIRST_FOLDER;
+      shouldPlay = true;
+    }
+    if(currentArrayCountFolder2 > 0) {
+      currentArrayCountFolder2-=1;
+    }
+  }
 
   // Check if any of the buttons were pressed
-  if (firstButtonState == LOW) { 
+  if (firstButtonState == LOW) {
+    firstButtonStateLast = firstButtonState;
     folderToPlayFrom = FIRST_FOLDER;
     shouldPlay = true;
   }else {
@@ -130,6 +256,7 @@ void loop()
   }
 
   if (secondButtonState == LOW) { 
+    secondButtonStateLast = secondButtonState;
     folderToPlayFrom = SECOND_FOLDER;
     shouldPlay = true;
   }
@@ -155,7 +282,28 @@ void loop()
   }
 
   shouldPlay = false;
+
+  if(ledIsOn) {
+    static uint8_t startIndex = 0;
+    startIndex = startIndex + 1; /* motion speed */
+    // Turn on LEDS
+    FillLEDsFromPaletteColors(startIndex);
+    FastLED.show();
+    FastLED.delay(1000 / UPDATES_PER_SECOND);
+  }
 }
+
+
+void FillLEDsFromPaletteColors( uint8_t colorIndex)
+{
+    uint8_t brightness = 255;
+    
+    for( int i = 0; i < NUM_LEDS_PER_STRIP; i++) {
+        leds[i] = ColorFromPalette( currentPalette, colorIndex, BRIGHTNESS);
+        colorIndex += 3;
+    }
+}
+
 void sendCommand(int8_t command, int16_t dat)
 {
   delay(20);
