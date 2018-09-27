@@ -7,7 +7,7 @@
 #include "Statistic.h"
 
 #define TOTAL_SONGS_FOLDER_1 27
-#define TOTAL_SONGS_FOLDER_2 6
+#define TOTAL_SONGS_FOLDER_2 28
 #define SONG_PLAY_TIME 200 // Time to wait before enabling another press on the button
 // Keeping the speaker from going to sleep mode
 #define TIME_TO_PLAY_SILENCE_TRACK 30000
@@ -79,7 +79,7 @@ void setup()
 
   mySerial.begin(9600);
   delay(500);//Wait chip initialization is complete
-  sendCommand(CMD_SEL_DEV, DEV_TF);//select the TF card
+  sendCommand(CMD_SEL_DEV, DEV_TF);//select the TF card  
   delay(200);
   lastTimePlayed = -1 * SONG_PLAY_TIME;
   sendCommand(CMD_SEL_DEV, 0x001E); //Set volume to max
@@ -106,8 +106,8 @@ void randomizeNewSongsArray2() {
   shuffle(songsArrayFolder2, songsArrayFolder2Size, sizeof(int));
 }
 
-void loop()
-{
+void loop() 
+{ 
   // Check if should randomize new songs array
   if(currentArrayCountFolder1 >= TOTAL_SONGS_FOLDER_1) {
     randomizeNewSongsArray1();
@@ -122,14 +122,14 @@ void loop()
   secondButtonState = digitalRead(secondButtonPin);
 
   // Check if any of the buttons were pressed
-  if (firstButtonState == LOW) {
+  if (firstButtonState == LOW) { 
     folderToPlayFrom = FIRST_FOLDER;
     shouldPlay = true;
   }else {
     shouldPlay = false;
   }
 
-  if (secondButtonState == LOW) {
+  if (secondButtonState == LOW) { 
     folderToPlayFrom = SECOND_FOLDER;
     shouldPlay = true;
   }
@@ -152,24 +152,6 @@ void loop()
     } else {
       Serial.println("Already playing");
     }
-
-    // Should stop song
-    //if(isPlaying && millis() - lastTimePlayed >= SONG_PLAY_TIME) {
-    //  isPlaying = false;
-    //  Serial.println("Stop song");
-    //  sendCommand(CMD_PAUSE, 0);
-    //}
-
-    // The following prevent sleeping
-//    bool notPlaying = ((millis() - lastTimePlayed) > SONG_PLAY_TIME);
-//    if (notPlaying && (millis() % TIME_TO_PLAY_SILENCE_TRACK) > TIME_TO_PLAY_SILENCE_TRACK - 1000) {
-//        Serial.println("Playing silence to stay awake");
-//        sendCommand(CMD_PLAY_W_VOL, 0X0315); //Playing some song (21 0x15) with low volumes (03)
-//        delay(600);
-//        sendCommand(CMD_PAUSE, 0);
-//        delay(50);
-//        sendCommand(CMD_PAUSE, 0);
-//    }
   }
 
   shouldPlay = false;
